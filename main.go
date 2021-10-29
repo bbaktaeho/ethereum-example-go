@@ -2,52 +2,61 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"math/big"
 
+	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core/types"
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 )
 
-var url = "http://localhost:8545"
+const (
+	localUrl = "http://localhost:7545"
+	vmUrl    = "http://192.168.66.111:8545"
+	address  = "0xaC84E3540BC6866eeF4d2735462a05b090Ea4f10"
+)
 
-// fee collector
-var address = "0xaC84E3540BC6866eeF4d2735462a05b090Ea4f10"
-
-func main() {
-	client, err := ethclient.DialContext(context.Background(), url)
-	if err != nil {
-		log.Fatalf("Error to create a ether client:%v", err)
-	}
-	defer client.Close()
-	block, err := client.BlockByNumber(context.Background(), nil)
-	if err != nil {
-		log.Fatalf("Error to get a block:%v", err)
-	}
-	fmt.Println("block number:", block.Number())
-
-	// balance := GetBalance(address, client)
-	// fmt.Println(balance)
-
-	// publicKey, privateKey, address := GenerateAddress()
-	// fmt.Println("public key:", publicKey)
-	// fmt.Println("private key:", privateKey)
-	// fmt.Println("address:", address)
-
-	// fmt.Println()
-
-	// GenerateKeystore()
-	// ReadKeystore()
-	GetEther()
+type SendParams struct {
+	From       common.Address
+	To         common.Address
+	PrivateKey *ecdsa.PrivateKey
+	Amount     *big.Int
 }
 
-func GetBalance(addr string, client *ethclient.Client) *big.Int {
-	address := common.HexToAddress(addr)
+func main() {
+	client := GetClientByUrl(vmUrl)
+	defer client.Close()
+
+	// feeCollector := common.HexToAddress(address)
+	balance := GetBalance(client, common.HexToAddress("0x85F4c4C2e04CcAbbd32c7833D3b364921b0E3663"))
+	fmt.Printf("%s's balance: %v wei\n", "0x85F4c4C2e04CcAbbd32c7833D3b364921b0E3663", balance)
+
+	// key := GetKeyInKeystore("./wallet/UTC--2021-10-27T08-59-12.868625000Z--5cbfc05ec8a802e1be308798a61687b432b83ded.json", "1234")
+	amount := new(big.Int)
+	amount, _ = amount.SetString("1000000000000000000", 10)
+
+	sendParams := SendParams{
+		From:       common.HexToAddress("0x85F4c4C2e04CcAbbd32c7833D3b364921b0E3663"),
+		To:         common.HexToAddress("0x2D6edcAb374812A03038369eC28472103FEe8F7d"),
+		PrivateKey: GetPrivateKey("ca6abc2a50d13b3b4c1212f697cddba93d5370067c58e44ffe382a24c0ea7fff"),
+		Amount:     amount,
+	}
+	SeadEth(client, sendParams)
+
+}
+
+func GetBalance(client *ethclient.Client, address common.Address) *big.Int {
 	// wei (big int)
 	balance, err := client.BalanceAt(context.Background(), address, nil)
 	if err != nil {
-		log.Fatalf("Error to get the balance:%v", err)
+		log.Fatalf("Error to get the balance: %v", err)
+		balance = big.NewInt(0)
 	}
 	// fBalance := new(big.Float)
 	// fBalance.SetString(balance.String())
@@ -59,26 +68,109 @@ func GetBalance(addr string, client *ethclient.Client) *big.Int {
 	return balance
 }
 
-func GetEther() {
-	url := "https://rinkeby.infura.io/v3/38ff0015e86549b28e5ad2d68f876a23"
-	client, err := ethclient.Dial(url)
+func GetPrivateKey(privateStr string) *ecdsa.PrivateKey {
+	privateKey, err := crypto.HexToECDSA(privateStr)
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer client.Close()
-	a1 := common.HexToAddress("96435b7ac04116a667e7b6761436e429ae7dc885")
-	a2 := common.HexToAddress("56f91f4c0ea9cda4ff24c4643c5c1cf2b23e2fef")
+	// publicKey, ok := privateKey.Public().(*ecdsa.PublicKey)
+	// if !ok {
+	// 	log.Fatal("error casting public key to ECDSA")
+	// }
 
-	b1, err := client.BalanceAt(context.Background(), a1, nil)
+	return privateKey
+}
+
+func GetClientByUrl(networkUrl string) *ethclient.Client {
+	client, err := ethclient.DialContext(context.TODO(), networkUrl)
+	if err != nil {
+		log.Fatalf("Error to create a ether client:%v", err)
+	}
+
+	chainId, _ := client.ChainID(context.TODO())
+	block, _ := client.BlockNumber(context.TODO())
+	networkId, _ := client.NetworkID(context.TODO())
+	fmt.Println("chain id:", chainId.String())
+	fmt.Println("block number:", block)
+	fmt.Println("network id:", networkId.String())
+
+	return client
+}
+
+func GenerateAddress() (publicKey, privateKey, address string) {
+	pvk, err := crypto.GenerateKey()
+	if err != nil {
+		log.Fatal()
+	}
+
+	pData := crypto.FromECDSA(pvk)
+	privateKey = hexutil.Encode(pData)
+
+	puData := crypto.FromECDSAPub(&pvk.PublicKey)
+	publicKey = hexutil.Encode(puData)
+
+	address = crypto.PubkeyToAddress(pvk.PublicKey).Hex()
+	return
+}
+
+func GenerateKeystore() {
+	key := keystore.NewKeyStore("./wallet", keystore.StandardScryptN, keystore.StandardScryptP)
+	password := "1234"
+	_, err := key.NewAccount(password)
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func GetKeyInKeystore(file, password string) *keystore.Key {
+	b, err := ioutil.ReadFile(file)
+	if err != nil {
+		log.Fatal(err)
+	}
+	key, err := keystore.DecryptKey(b, password)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return key
+}
+
+func GetAddressByPrivateKey(privateKey *ecdsa.PrivateKey) common.Address {
+	publicKeyECDSA, ok := privateKey.Public().(*ecdsa.PublicKey)
+	if !ok {
+		log.Fatal("error casting public key to ECDSA")
+	}
+	address := crypto.PubkeyToAddress(*publicKeyECDSA)
+	return address
+}
+
+func SeadEth(client *ethclient.Client, sendParams SendParams) {
+	nonce, err := client.PendingNonceAt(context.TODO(), sendParams.From)
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("nonce:", nonce)
+	gasLimit := uint64(21000)
+	gasPrice, err := client.SuggestGasPrice(context.TODO())
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println("gasPrice:", gasPrice, ", gasLimit:", gasLimit)
+	var data []byte
+	tx := types.NewTransaction(nonce, sendParams.To, sendParams.Amount, gasLimit, gasPrice, data)
+
+	chainId, err := client.NetworkID(context.TODO())
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	b2, err := client.BalanceAt(context.Background(), a2, nil)
+	tx, err = types.SignTx(tx, types.NewEIP155Signer(chainId), sendParams.PrivateKey)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = client.SendTransaction(context.TODO(), tx)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	fmt.Println(b1)
-	fmt.Println(b2)
+	fmt.Printf("tx sent: %s\n", tx.Hash().Hex())
 }
