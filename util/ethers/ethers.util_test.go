@@ -1,4 +1,4 @@
-package ethersutil
+package ethers
 
 import (
 	"math/big"

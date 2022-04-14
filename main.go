@@ -2,13 +2,10 @@ package main
 
 import (
 	"context"
-	cusutil "ethereum-client-example-go/util"
-	"fmt"
+	"encoding/json"
+	"errors"
 	"log"
-	"math"
 	"math/big"
-	"sync"
-	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -22,48 +19,46 @@ const (
 	RPC_RUL = "https://ropsten.infura.io/v3/7ed60e8c0f574496b5297cdc767ac2c0"
 )
 
-func GetBalanceOf(client *ethclient.Client, address common.Address) (balance, pendingBalance *big.Int) {
-	defer cusutil.TimeTrack(time.Now(), "GetBalanceOf")
-	var w sync.WaitGroup
-	ctx := context.Background()
+// func CreateEIP1559Transaction(client *ethclient.Client, to, privateHexKey string, amount *big.Int) (receipt *types.Receipt, e error) {
+// 	ctx := context.Background()
+// 	privateKey, err := crypto.HexToECDSA(privateHexKey)
+// 	if err != nil {
+// 		return nil, err
+// 	}
 
-	w.Add(2)
-	go func() {
-		b, err := client.BalanceAt(ctx, address, nil)
-		balance = b
-		if err != nil {
-			log.Fatal(err)
-		}
-		w.Done()
-	}()
-	go func() {
-		pb, err := client.PendingBalanceAt(ctx, address)
-		pendingBalance = pb
-		if err != nil {
-			log.Fatal(err)
-		}
-		w.Done()
-	}()
-	w.Wait()
-	return
-}
+// 	from := crypto.PubkeyToAddress(privateKey.PublicKey).Hex()
+
+// 	if !common.IsHexAddress(to) {
+// 		e = errors.New("invalid to address")
+// 	}
+
+// 	nonce, err := client.PendingNonceAt(ctx, common.HexToAddress(from))
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	block.BaseFee()
+
+// 	// tx := types.NewTx(&types.DynamicFeeTx{
+// 	// 	Nonce: nonce,
+// 	// })
+// }
 
 // legacy transaction
 // todo: goroutine
-func TransferEtherTransaction(client *ethclient.Client, from, to string, amount *big.Int, privateHexKey string) (receipt *types.Receipt) {
+func TransferEtherTransaction(client *ethclient.Client, from, to string, amount *big.Int, privateHexKey string) (receipt *types.Receipt, e error) {
 	ctx := context.Background()
 	privateKey, err := crypto.HexToECDSA(privateHexKey)
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
 
 	if !common.IsHexAddress(from) || !common.IsHexAddress(to) {
-		log.Fatal("Is not address")
+		e = errors.New("invalid addres")
 	}
 
 	nonce, err := client.PendingNonceAt(ctx, common.HexToAddress(from))
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
 
 	fromAddress := common.HexToAddress(from)
@@ -80,15 +75,15 @@ func TransferEtherTransaction(client *ethclient.Client, from, to string, amount 
 
 	gasUsed, err := client.EstimateGas(ctx, callMsg)
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
-	fmt.Println("gasLimit:", gasUsed)
+	log.Println("gasLimit:", gasUsed)
 
 	gasPrice, err := client.SuggestGasPrice(ctx)
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
-	fmt.Println("gasPrice:", gasPrice)
+	log.Println("gasPrice:", gasPrice)
 
 	tx := types.NewTransaction(
 		nonce,
@@ -101,23 +96,23 @@ func TransferEtherTransaction(client *ethclient.Client, from, to string, amount 
 
 	chainId, err := client.NetworkID(ctx)
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
 
 	signedTx, err := types.SignTx(tx, types.NewEIP155Signer(chainId), privateKey)
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
 
 	err = client.SendTransaction(ctx, signedTx)
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
-	fmt.Println("transactionHash:", tx.Hash().String())
+	log.Println("transactionHash:", tx.Hash().String())
 
 	receipt, err = bind.WaitMined(ctx, client, signedTx)
 	if err != nil {
-		log.Fatal(err)
+		e = err
 	}
 	return
 }
@@ -128,11 +123,20 @@ func main() {
 	client, _ := ethclient.DialContext(ctx, RPC_RUL)
 	defer client.Close()
 
-	from := "0x2E14747bF40385F958F4C5265A312504935a2afE"
-	privateKey := "43f035f47cae3a368377d4418dac7c830f6a40a029947cb9f746fefc70537d72" // todo
-	to := "0xdDF36eCdf1fA200a1dFF510544CA1B948d9e7Fec"
-	amount := big.NewInt(int64(math.Pow10(18)))
-	receipt := TransferEtherTransaction(client, from, to, amount, privateKey)
-	fmt.Println("gasUsed:", receipt.GasUsed)
-	fmt.Println("txHash:", receipt.TxHash)
+	// from := "0x2E14747bF40385F958F4C5265A312504935a2afE"
+	// privateKey := "43f035f47cae3a368377d4418dac7c830f6a40a029947cb9f746fefc70537d72" // todo
+	// toHexAddress := "0xdDF36eCdf1fA200a1dFF510544CA1B948d9e7Fec"
+	// to := common.HexToAddress(toHexAddress)
+	// value := big.NewInt(int64(math.Pow10(18)))
+
+	// receipt, err := feature.TransferValue(client, privateKey, &to, value, 0)
+	// if err != nil {
+	// 	log.Println(err)
+	// 	return
+	// }
+
+	txHash := common.HexToHash("0xd6499e8217a72c71b49a8967263ce8f9b8b82d3c72df492008114590b7b54da6")
+	receipt, _ := client.TransactionReceipt(ctx, txHash)
+	obj, _ := json.Marshal(receipt)
+	log.Printf("%+v\n", obj)
 }

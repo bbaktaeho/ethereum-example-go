@@ -1,4 +1,4 @@
-package cusutil
+package util
 
 import (
 	"fmt"
